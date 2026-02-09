@@ -2,19 +2,18 @@
 
 Pending features and future improvements for Windows-Sync.
 
-## ✅ Completed (v2.8.2)
+## ✅ Completed (v2.9.0)
+- [x] **Tray Menu:** "Configure", "Toggle Sync", and "Exit" options directly in the tray.
+- [x] **Background Mode:** "Minimize to Tray" checkbox option.
+- [x] **Icon Embedding:** Executable no longer requires external `.ico` file.
 - [x] **Sync Engine:** Robust polling compatible with third-party apps.
 - [x] **Group Logic:** Independent Min/Max/Restore synchronization.
 - [x] **Rivals Logic:** Binary visibility switching with auto-correction.
 - [x] **Responsive Interface:** Layout that adapts to resizing.
-- [x] **Visual Identity:** Custom icons and Windows-Sync branding.
 - [x] **Direct UX:** Assignment via row click and session memory.
-- [x] **Stop Shortcuts:** Support for configurable Esc and Ctrl+Shift+Tab.
-- [x] **Automation:** `compile.bat` script for easy executable generation.
 
-## 🚀 Next Priorities (v2.9)
+## 🚀 Next Priorities (v3.0)
 - [ ] **Disk Persistence:** Save group/process settings to an `.ini` file (to avoid reconfiguring when closing the program).
-- [ ] **Tray Menu:** Add "Configure", "Pause", and "Exit" options directly to the clock icon.
 - [ ] **Focus Synchronization:** Option to bring all group windows to the front when one is activated.
 
 ## ⚙️ Technical Improvements

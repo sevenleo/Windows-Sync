@@ -6,8 +6,8 @@ Persistent
 ; COMPILATION DIRECTIVES (For Ahk2Exe)
 ; ==============================================================================
 ;@Ahk2Exe-SetName Windows-Sync
-;@Ahk2Exe-SetDescription Windows Group and Rival Synchronizer
-;@Ahk2Exe-SetVersion 2.8.2
+;@Ahk2Exe-SetDescription Windows-Sync
+;@Ahk2Exe-SetVersion 2.9.0
 ;@Ahk2Exe-AddResource icon.ico, 160  ; Sets the main icon in the executable
 ;@Ahk2Exe-SetMainIcon icon.ico
 
@@ -18,13 +18,16 @@ global ProjectName := "Windows-Sync"
 global IconPath := A_ScriptDir . "\icon.ico"
 
 ; Sets the tray icon (near the clock)
-if FileExist(IconPath) {
+if A_IsCompiled {
+    ; When compiled, the executable *is* the icon resource (index 1 usually)
+    try TraySetIcon(A_ScriptFullPath, 1)
+} else if FileExist(IconPath) {
     TraySetIcon(IconPath)
 } else {
     TraySetIcon("shell32.dll", 16) 
 }
 
-A_IconTip := ProjectName 
+A_IconTip := ProjectName . " - Stopped"
 
 ; ==============================================================================
 ; CONFIGURATION AND STATE
@@ -39,17 +42,41 @@ global UseEsc := true
 global UseTab := true
 
 ; ==============================================================================
+; TRAY MENU CONFIGURATION
+; ==============================================================================
+SetupTrayMenu() {
+    Tray := A_TrayMenu
+    Tray.Delete() ; Clear default menu
+    
+    Tray.Add("Configure", ShowGui)
+    Tray.Add("Toggle Sync", ToggleSync)
+    Tray.Add("Reload", (*) => Reload())
+    Tray.Add() ; Separator
+    Tray.Add("Exit", (*) => ExitApp())
+
+    Tray.Default := "Configure"
+    Tray.ClickCount := 1 ; Single click to open config
+}
+SetupTrayMenu()
+
+; ==============================================================================
 ; RESPONSIVE INTERFACE (v2.8.2)
 ; ==============================================================================
 global MainGui := Gui("+AlwaysOnTop +Resize +MinSize600x650", ProjectName)
-MainGui.OnEvent("Close", (*) => ExitApp())
+MainGui.OnEvent("Close", Gui_Close)
 MainGui.OnEvent("Size", Gui_Size) 
 
 ; Fix for the window icon in AHK v2
-if FileExist(IconPath) {
-    try {
-        ; Using local variables to avoid conflict with internal functions
+try {
+    if A_IsCompiled {
+        ; Load from executable resource
+        h_icon := LoadPicture(A_ScriptFullPath, "Icon1 w32 h32", &img_type)
+    } else if FileExist(IconPath) {
+        ; Load from file
         h_icon := LoadPicture(IconPath, "Icon1 w32 h32", &img_type)
+    }
+    
+    if IsSet(h_icon) {
         SendMessage(0x0080, 0, h_icon, MainGui.Hwnd) ; WM_SETICON, ICON_SMALL
         SendMessage(0x0080, 1, h_icon, MainGui.Hwnd) ; WM_SETICON, ICON_BIG
     }
@@ -73,11 +100,13 @@ LV.ModifyCol(4, 300)
 LV.OnEvent("Click", LV_Click)
 
 ; Shortcuts Section
-global GroupShortcuts := MainGui.Add("GroupBox", "xm y+30 w580 h70", "Stop Shortcuts")
+global GroupShortcuts := MainGui.Add("GroupBox", "xm y+30 w580 h70", "Options")
 global ChkEsc := MainGui.Add("Checkbox", "xp+20 yp+30 w100 h20", "Enable ESC")
 ChkEsc.Value := UseEsc
-global ChkTab := MainGui.Add("Checkbox", "x+50 yp w180 h20", "Enable Ctrl + Shift + Tab")
+global ChkTab := MainGui.Add("Checkbox", "x+20 yp w160 h20", "Enable Ctrl+Shift+Tab")
 ChkTab.Value := UseTab
+global ChkTray := MainGui.Add("Checkbox", "x+20 yp w180 h20", "Minimize to Tray on Close")
+ChkTray.Value := false ; Default to Close = Exit
 
 ; Actions Footer
 global BtnRefresh := MainGui.Add("Button", "xm+180 y+40 w120 h35", "Refresh List")
@@ -105,6 +134,19 @@ Loop 3
 UpdateList()
 MainGui.Show("w620 h650")
 
+ShowGui(*) {
+    MainGui.Show()
+    UpdateList()
+}
+
+Gui_Close(*) {
+    if (ChkTray.Value) {
+        MainGui.Hide()
+    } else {
+        ExitApp()
+    }
+}
+
 ; ==============================================================================
 ; RESPONSIVENESS LOGIC
 ; ==============================================================================
@@ -126,6 +168,7 @@ Gui_Size(thisGui, WindowState, Width, Height) {
     GroupShortcuts.Move(m, yPos, w, 70)
     ChkEsc.Move(m + 20, yPos + 30)
     ChkTab.Move(m + 130, yPos + 30)
+    ChkTray.Move(m + 300, yPos + 30)
     
     yActions := Height - 90
     BtnRefresh.Move(m + 180, yActions)
@@ -263,9 +306,11 @@ ToggleSync(*) {
     }
     SyncActive := true
     BtnStart.Text := "Stop"
+    A_IconTip := ProjectName . " - Active"
+    try A_TrayMenu.Rename("Toggle Sync", "Stop Sync")
     MainGui.Hide()
     if (!UseEsc && !UseTab)
-        MsgBox("Warning: No stop shortcuts active.", "Warning", "Iconi")
+        MsgBox("Warning: No stop shortcuts active. Use Tray Icon to stop.", "Warning", "Iconi")
     SetTimer(MonitorAll, 100)
 }
 
@@ -274,6 +319,8 @@ StopSync() {
     SyncActive := false
     SetTimer(MonitorAll, 0)
     BtnStart.Text := "Sync All"
+    A_IconTip := ProjectName . " - Stopped"
+    try A_TrayMenu.Rename("Stop Sync", "Toggle Sync")
     MainGui.Show()
     UpdateList()
 }
