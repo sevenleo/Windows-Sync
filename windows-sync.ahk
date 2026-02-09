@@ -7,7 +7,7 @@ Persistent
 ; ==============================================================================
 ;@Ahk2Exe-SetName Windows-Sync
 ;@Ahk2Exe-SetDescription Windows-Sync
-;@Ahk2Exe-SetVersion 2.9.0
+;@Ahk2Exe-SetVersion 1.0.1
 ;@Ahk2Exe-AddResource icon.ico, 160  ; Sets the main icon in the executable
 ;@Ahk2Exe-SetMainIcon icon.ico
 

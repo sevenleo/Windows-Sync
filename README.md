@@ -1,10 +1,10 @@
-# Windows-Sync v2.9.0
+# Windows-Sync v1.0.1
 
 ## Description
 
 A professional and robust **AutoHotkey v2** script to synchronize window states in Windows. Ideal for workflows that require keeping multiple application instances (such as browsers, terminals, or folders) in sync, or quickly switching between complementary windows.
 
-Now with a responsive interface, **native tray integration**, support for multiple independent groups, "rivals" logic, and a complete visual identity.
+The initial release of Windows-Sync provides a responsive interface, **native tray integration**, support for multiple independent groups, "rivals" logic, and a complete visual identity.
 
 ## Key Features
 
