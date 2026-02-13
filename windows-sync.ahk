@@ -729,11 +729,11 @@ ShowBlacklistManager(*) {
     BlacklistManagerGui.OnEvent("Close", BlacklistManager_Close)
     BlacklistManagerGui.SetFont("s9", "Segoe UI")
 
-    BlacklistManagerLV := BlacklistManagerGui.Add("ListView", "xm ym w460 h240 Grid -Multi", ["Type", "Keyword"])
-    BlacklistManagerLV.ModifyCol(1, 140)
-    BlacklistManagerLV.ModifyCol(2, 290)
+    BlacklistManagerLV := BlacklistManagerGui.Add("ListView", "xm ym w510 h240 Grid -Multi", ["Type", "Keyword"])
+    BlacklistManagerLV.ModifyCol(1, 160)
+    BlacklistManagerLV.ModifyCol(2, 340)
 
-    BlacklistTypeDDL := BlacklistManagerGui.Add("DropDownList", "xm y+12 w160 Choose1", ["Process or Title", "Process", "Title"])
+    BlacklistTypeDDL := BlacklistManagerGui.Add("DropDownList", "xm y+12 w170 Choose1", ["Process or Title", "Process", "Title"])
     BlacklistTermEdit := BlacklistManagerGui.Add("Edit", "x+10 yp w220", "")
     BtnAddTerm := BlacklistManagerGui.Add("Button", "x+10 yp-1 w100 h24", "Add")
     BtnAddTerm.OnEvent("Click", BlacklistManager_Add)
@@ -745,7 +745,7 @@ ShowBlacklistManager(*) {
     BtnCloseBlacklist.OnEvent("Click", BlacklistManager_Close)
 
     RefreshBlacklistManagerList()
-    BlacklistManagerGui.Show("w485 h335")
+    BlacklistManagerGui.Show("w540 h335")
 }
 
 AddContextProcessToBlacklist(*) {
