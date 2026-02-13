@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## v1.7.0
+
+### Improvements
+- **Default Combined Blacklist Mode:** Added `Process or Title` option in blacklist manager as the default selection for quick dual-field filtering.
+- **Selective Blacklist Mode Still Available:** Users can still manually choose `Process` or `Title` for field-specific filtering.
+- **Combined Entry Visualization:** When the same keyword exists in both blacklist arrays, manager now shows it as `Process or Title`.
+- **Combined Remove Behavior:** Removing a `Process or Title` row removes that keyword from both process and title filters.
+- **Blacklist Manager Layout Fit:** Manager window/table sizing updated so controls (including `Add`) stay fully visible.
+
+### Fixes
+- **DropDownList Items Type Error:** Fixed AHK v2 control creation error by using array items for the blacklist type selector.
+- **JSON Parser Stability:** Refactored parser internals (literals, number parse, escape handling) to reduce escape/syntax fragility.
+- **Config Fallback Maintainability:** Consolidated default-reset fallback path during config load without changing runtime behavior.
+
 ## v1.6.0
 
 ### Features

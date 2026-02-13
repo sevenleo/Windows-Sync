@@ -1,4 +1,4 @@
-# Windows-Sync v1.6.0
+# Windows-Sync v1.7.0
 
 ## Description
 
@@ -6,12 +6,12 @@ A professional and robust **AutoHotkey v2** script to synchronize window states 
 
 Windows-Sync provides a responsive interface, **native tray integration**, support for multiple independent groups, rivals logic, and a complete visual identity.
 
-## What's New in v1.6.0
+## What's New in v1.7.0
 
-- ✅ **Blacklist with Persistent Config** - Added `config.json` with blacklist support for process names and window titles.
-- ✅ **Manage Blacklist UI** - New `Manage Blacklist` button in `Options` to list/add/remove blacklist terms.
-- ✅ **Quick Blacklist from Window Row** - Right-click any listed window to add its process name or title directly to the blacklist.
-- ✅ **Case-Insensitive Contains Matching** - Filtering is applied using substring matching (`contains_ci`) for process and title terms.
+- ✅ **`Process or Title` Mode (Default)** - Blacklist manager now includes a default mode that adds one keyword to both process and title filters in a single action.
+- ✅ **Manual Specific Mode Selection** - Users can still explicitly choose `Process` or `Title` when they want targeted filtering.
+- ✅ **Blacklist Manager Layout Fix** - Manager window width/columns were adjusted so table and buttons (including `Add`) fit correctly.
+- ✅ **Parser and Config Robustness** - Internal JSON parsing was simplified and hardened to reduce escape-related risks while keeping `config.json` compatibility.
 
 ## Key Features
 
@@ -32,6 +32,7 @@ Windows-Sync provides a responsive interface, **native tray integration**, suppo
 - ✅ **Tray Menu & Background Mode** - Control synchronization directly from the system tray. Use the new **"Minimize to Tray"** option to keep the app running silently in the background.
 - ✅ **Sync Behavior Toggle in Options** - Enable or disable maximized-state synchronization at any time.
 - ✅ **Blacklist Manager in Options** - Open a dedicated manager window to maintain blacklist entries.
+- ✅ **Combined Blacklist Type** - Use `Process or Title` to apply one term to both filters at once (default selection in manager).
 - ✅ **Row Context Blacklist Actions** - Add process/title terms directly from any `Active Windows` row.
 - ✅ **Responsive Layout** - Interface that adapts to resizing, with flexible columns.
 - ✅ **Executable Identification** - View the process name (`chrome.exe`, `Code.exe`) to easily identify windows.
@@ -52,6 +53,7 @@ Windows-Sync provides a responsive interface, **native tray integration**, suppo
    - Check **"Minimize to Tray on Close"** to keep the app running in the background.
    - Enable **"Sync Maximized State (Groups/Rivals)"** if you also want normal/maximized state propagation.
    - Click **"Manage Blacklist"** to list, add, and remove blacklist terms.
+   - In Blacklist Manager, **`Process or Title`** is the default add mode (applies keyword to both filters).
    - Configure return shortcuts (**ESC**, **Ctrl+Shift+Tab**).
 3. **Synchronize:** Click "Sync All" (or use "Toggle Sync" from the tray). Monitoring begins and the button changes to **Stop**.
 4. **Review While Active:** You can keep the GUI open (or reopen via tray/shortcut) without cancelling synchronization.
@@ -79,6 +81,7 @@ Current schema:
 - `processTerms`: hides rows when the executable name contains a term.
 - `titleTerms`: hides rows when the window title contains a term.
 - Matching is case-insensitive and applied immediately to `Active Windows`.
+- In manager mode `Process or Title`, the same keyword is saved in both arrays.
 
 ### Focus Behavior (Groups)
 1. Focus policy is applied when focus changes from a non-group window to a Group window.
