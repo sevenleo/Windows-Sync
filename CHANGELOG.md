@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## v1.4.0
+
+### Improvements
+- **Optional Maximized-State Sync (Groups + Rivals):** Added new `Sync Maximized State (Groups/Rivals)` checkbox in the `Options` section.
+- **Default Behavior Change:** Maximized synchronization now starts **disabled by default**; visibility/minimized synchronization remains active.
+- **Immediate Runtime Apply:** Toggling maximized sync while synchronization is running now applies immediately without restarting `Sync All`.
+- **Rivals Visible-Mode Preservation:** With maximized sync enabled, Rival windows restore using the last visible mode (normal or maximized).
+- **Options Layout Update:** `Options` section now supports the extra checkbox while preserving responsive spacing.
+
 ## v1.3.0
 
 ### Improvements

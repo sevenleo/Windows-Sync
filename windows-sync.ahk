@@ -36,12 +36,14 @@ global SyncActive := false
 global SyncInProgress := false
 global SyncGroups := Map() 
 global SyncRivals := Map() 
+global SyncRivalVisibleMode := Map()
 global PersistentAssignments := Map() 
 global LastActiveHwnd := 0
 global LastFocusPolicyGroupId := 0
 
 global UseEsc := false
 global UseTab := true
+global UseMaximizedSync := false
 
 global BtnGap := 10
 global BtnRefreshW := 120
@@ -52,7 +54,7 @@ global BtnExitW := 90
 ; TRAY MENU CONFIGURATION
 ; ==============================================================================
 ExitAllAndCloseApp(*) {
-    global SyncActive, SyncInProgress, SyncGroups, SyncRivals, PersistentAssignments
+    global SyncActive, SyncInProgress, SyncGroups, SyncRivals, SyncRivalVisibleMode, PersistentAssignments
     global LastActiveHwnd, LastFocusPolicyGroupId, BtnStart
 
     SyncActive := false
@@ -61,6 +63,7 @@ ExitAllAndCloseApp(*) {
 
     SyncGroups.Clear()
     SyncRivals.Clear()
+    SyncRivalVisibleMode.Clear()
     PersistentAssignments.Clear()
     LastActiveHwnd := 0
     LastFocusPolicyGroupId := 0
@@ -91,7 +94,7 @@ SetupTrayMenu()
 ; ==============================================================================
 ; RESPONSIVE INTERFACE (v2.8.2)
 ; ==============================================================================
-global MainGui := Gui("+Resize +MinSize600x720", ProjectName)
+global MainGui := Gui("+Resize +MinSize600x750", ProjectName)
 MainGui.OnEvent("Close", Gui_Close)
 MainGui.OnEvent("Size", Gui_Size) 
 
@@ -136,9 +139,12 @@ global ChkTab := MainGui.Add("Checkbox", "x+20 yp w160 h20", "Enable Ctrl+Shift+
 ChkTab.Value := UseTab
 
 ; Options Section
-global GroupOptions := MainGui.Add("GroupBox", "xm y+10 w580 h70", "Options")
+global GroupOptions := MainGui.Add("GroupBox", "xm y+10 w580 h95", "Options")
 global ChkTray := MainGui.Add("Checkbox", "xp+20 yp+30 w220 h20", "Minimize to Tray on Close")
 ChkTray.Value := true ; Default to Close = Minimize to Tray
+global ChkSyncMaximized := MainGui.Add("Checkbox", "xp yp+25 w300 h20", "Sync Maximized State (Groups/Rivals)")
+ChkSyncMaximized.Value := UseMaximizedSync
+ChkSyncMaximized.OnEvent("Click", OnSyncMaximizedToggle)
 
 ; Actions Footer
 btnTotalW := BtnRefreshW + BtnStartW + BtnExitW + (BtnGap * 2)
@@ -169,12 +175,13 @@ Loop 3
     AssignMenu.Add("Rival " A_Index, SetAssignmentFromMenu)
 
 UpdateList()
-MainGui.Show("w620 h720")
+MainGui.Show("w620 h750")
 
 ShowGui(*) {
-    global SyncActive, BtnStart, UseEsc, UseTab, ChkEsc, ChkTab
+    global SyncActive, BtnStart, UseEsc, UseTab, UseMaximizedSync, ChkEsc, ChkTab, ChkSyncMaximized
     ChkEsc.Value := UseEsc
     ChkTab.Value := UseTab
+    ChkSyncMaximized.Value := UseMaximizedSync
     if (SyncActive) {
         BtnStart.Text := "Stop"
         SetSyncUiLocked(true)
@@ -212,7 +219,7 @@ Gui_Size(thisGui, WindowState, Width, Height) {
     ; Vertical stack from bottom to top to keep spacing stable:
     ; Actions -> Options -> Shortcuts -> Active Windows
     yActions := Height - 90
-    yOptions := yActions - 80
+    yOptions := yActions - 105
     yShortcuts := yOptions - 80
      
     Header1.Move(m, , w)
@@ -234,8 +241,9 @@ Gui_Size(thisGui, WindowState, Width, Height) {
     ChkEsc.Move(m + 20, yShortcuts + 30)
     ChkTab.Move(m + 130, yShortcuts + 30)
 
-    GroupOptions.Move(m, yOptions, w, 70)
+    GroupOptions.Move(m, yOptions, w, 95)
     ChkTray.Move(m + 20, yOptions + 30)
+    ChkSyncMaximized.Move(m + 20, yOptions + 55)
 
     totalButtonsW := BtnRefreshW + BtnStartW + BtnExitW + (BtnGap * 2)
     buttonsStartX := m + Floor((w - totalButtonsW) / 2)
@@ -299,6 +307,7 @@ SetSyncUiLocked(isLocked) {
     ChkEsc.Enabled := true
     ChkTab.Enabled := true
     ChkTray.Enabled := true
+    ChkSyncMaximized.Enabled := true
 }
 
 SetAssignmentFromMenu(ItemName, ItemPos, MyMenu) {
@@ -328,16 +337,206 @@ SetAssignmentFromMenu(ItemName, ItemPos, MyMenu) {
 ; SYNCHRONIZATION LOGIC
 ; ==============================================================================
 
+GetTrackedStateFromRaw(raw) {
+    global UseMaximizedSync
+    if (raw == -1)
+        return -1
+    return UseMaximizedSync ? raw : 0
+}
+
+GetGroupTrackedState(hwnd) {
+    if !WinExist(hwnd)
+        return -1
+    raw := WinGetMinMax(hwnd)
+    return GetTrackedStateFromRaw(raw)
+}
+
+ApplyGroupStateToWindow(hwnd, trackedState) {
+    global UseMaximizedSync
+    if !WinExist(hwnd)
+        return
+
+    currRaw := WinGetMinMax(hwnd)
+    currTracked := GetTrackedStateFromRaw(currRaw)
+    if (currTracked == trackedState)
+        return
+
+    if (trackedState == -1) {
+        WinMinimize(hwnd)
+        return
+    }
+
+    if (UseMaximizedSync) {
+        if (trackedState == 1)
+            WinMaximize(hwnd)
+        else
+            WinRestore(hwnd)
+        return
+    }
+
+    ; With maximized sync disabled, only un-minimize hidden windows.
+    if (currRaw == -1)
+        WinRestore(hwnd)
+}
+
+GetVisibleModeFromRaw(raw) {
+    return (raw == 1) ? 1 : 0
+}
+
+UpdateRivalVisibleMode(rid, windows) {
+    global UseMaximizedSync, SyncRivalVisibleMode
+    if (!UseMaximizedSync) {
+        if (SyncRivalVisibleMode.Has(rid))
+            SyncRivalVisibleMode.Delete(rid)
+        return
+    }
+
+    visibleFound := false
+    for hwnd, _ in windows {
+        if !WinExist(hwnd)
+            continue
+        raw := WinGetMinMax(hwnd)
+        if (raw == -1)
+            continue
+        SyncRivalVisibleMode[rid] := GetVisibleModeFromRaw(raw)
+        visibleFound := true
+        break
+    }
+
+    if (!visibleFound && !SyncRivalVisibleMode.Has(rid))
+        SyncRivalVisibleMode[rid] := 0
+}
+
+RebaselineGroupSnapshots() {
+    global SyncGroups
+    for groupId, windows in SyncGroups {
+        for hwnd, _ in windows {
+            if !WinExist(hwnd) {
+                windows.Delete(hwnd)
+                continue
+            }
+            try windows[hwnd] := GetGroupTrackedState(hwnd)
+        }
+    }
+}
+
+RebaselineRivalSnapshots() {
+    global SyncRivals
+    for rid, windows in SyncRivals {
+        for hwnd, _ in windows {
+            if !WinExist(hwnd) {
+                windows.Delete(hwnd)
+                continue
+            }
+            try windows[hwnd] := (WinGetMinMax(hwnd) == -1) ? -1 : 1
+        }
+    }
+}
+
+GetGroupReferenceHwnd(windows) {
+    activeHwnd := 0
+    try activeHwnd := WinGetID("A")
+    if (activeHwnd && windows.Has(activeHwnd) && WinExist(activeHwnd))
+        return activeHwnd
+
+    firstVisible := 0
+    firstExisting := 0
+    for hwnd, _ in windows {
+        if !WinExist(hwnd)
+            continue
+        if (!firstExisting)
+            firstExisting := hwnd
+        raw := WinGetMinMax(hwnd)
+        if (raw != -1) {
+            firstVisible := hwnd
+            break
+        }
+    }
+
+    if (firstVisible)
+        return firstVisible
+    return firstExisting
+}
+
+ApplyGroupReferencePolicy(windows) {
+    referenceHwnd := GetGroupReferenceHwnd(windows)
+    if (!referenceHwnd || !WinExist(referenceHwnd))
+        return
+
+    referenceState := GetGroupTrackedState(referenceHwnd)
+    for hwnd, _ in windows {
+        if !WinExist(hwnd) {
+            windows.Delete(hwnd)
+            continue
+        }
+        windows[hwnd] := referenceState
+        if (hwnd == referenceHwnd)
+            continue
+        try ApplyGroupStateToWindow(hwnd, referenceState)
+    }
+}
+
+ApplyRuntimeMaximizedSyncPolicy() {
+    global SyncActive, SyncInProgress, SyncGroups, SyncRivals, SyncRivalVisibleMode
+    global UseMaximizedSync, LastActiveHwnd, LastFocusPolicyGroupId
+
+    if (!SyncActive)
+        return
+
+    if (SyncInProgress) {
+        SetTimer(ApplyRuntimeMaximizedSyncPolicy, -30)
+        return
+    }
+
+    SyncInProgress := true
+    try {
+        if (UseMaximizedSync) {
+            for groupId, windows in SyncGroups
+                ApplyGroupReferencePolicy(windows)
+        }
+
+        RebaselineGroupSnapshots()
+        RebaselineRivalSnapshots()
+
+        SyncRivalVisibleMode.Clear()
+        if (UseMaximizedSync) {
+            for rid, windows in SyncRivals
+                UpdateRivalVisibleMode(rid, windows)
+        }
+
+        LastActiveHwnd := 0
+        LastFocusPolicyGroupId := 0
+    } finally {
+        SyncInProgress := false
+    }
+}
+
+OnSyncMaximizedToggle(*) {
+    global ChkSyncMaximized, UseMaximizedSync, SyncActive
+    newValue := !!ChkSyncMaximized.Value
+    if (UseMaximizedSync == newValue)
+        return
+
+    UseMaximizedSync := newValue
+    if (!SyncActive)
+        return
+
+    ApplyRuntimeMaximizedSyncPolicy()
+}
+
 ToggleSync(*) {
-    global SyncActive, SyncGroups, SyncRivals, StatusBar, BtnStart, PersistentAssignments, UseEsc, UseTab, LastActiveHwnd, LastFocusPolicyGroupId
+    global SyncActive, SyncGroups, SyncRivals, SyncRivalVisibleMode, StatusBar, BtnStart, PersistentAssignments
+    global UseEsc, UseTab, UseMaximizedSync, ChkSyncMaximized, LastActiveHwnd, LastFocusPolicyGroupId
     if (SyncActive) {
         StopSync()
         return
     }
     UseEsc := ChkEsc.Value
     UseTab := ChkTab.Value
+    UseMaximizedSync := !!ChkSyncMaximized.Value
     SyncGroups.Clear()
     SyncRivals.Clear()
+    SyncRivalVisibleMode.Clear()
     Loop LV.GetCount() {
         hwndText := LV.GetText(A_Index, 1)
         if (hwndText == "")
@@ -354,7 +553,7 @@ ToggleSync(*) {
                 if !SyncGroups.Has(id)
                     SyncGroups[id] := Map()
                 if WinExist(hwnd)
-                    SyncGroups[id][hwnd] := WinGetMinMax(hwnd)
+                    SyncGroups[id][hwnd] := GetGroupTrackedState(hwnd)
             } else if (aType == "Rival") {
                 if !SyncRivals.Has(id)
                     SyncRivals[id] := Map()
@@ -385,6 +584,8 @@ ToggleSync(*) {
             }
             windows[h1] := (WinGetMinMax(h1) == -1) ? -1 : 1
             windows[h2] := (WinGetMinMax(h2) == -1) ? -1 : 1
+            if (UseMaximizedSync)
+                UpdateRivalVisibleMode(rid, windows)
         }
     }
     SyncActive := true
@@ -400,10 +601,11 @@ ToggleSync(*) {
 }
 
 StopSync() {
-    global SyncActive, StatusBar, BtnStart, MainGui, LastActiveHwnd, LastFocusPolicyGroupId
+    global SyncActive, SyncRivalVisibleMode, StatusBar, BtnStart, MainGui, LastActiveHwnd, LastFocusPolicyGroupId
     SyncActive := false
     LastActiveHwnd := 0
     LastFocusPolicyGroupId := 0
+    SyncRivalVisibleMode.Clear()
     SetSyncUiLocked(false)
     SetTimer(MonitorAll, 0)
     BtnStart.Text := "Sync All"
@@ -459,7 +661,7 @@ SyncGroupFocusAndZOrder(groupId, activeHwnd) {
         }
         try {
             curr := WinGetMinMax(hwnd)
-            windows[hwnd] := curr
+            windows[hwnd] := GetTrackedStateFromRaw(curr)
             if (curr == -1)
                 continue
             groupHwnds.Push(hwnd)
@@ -524,12 +726,13 @@ SyncGroupFocusAndZOrder(groupId, activeHwnd) {
             windows.Delete(hwnd)
             continue
         }
-        try windows[hwnd] := WinGetMinMax(hwnd)
+        try windows[hwnd] := GetGroupTrackedState(hwnd)
     }
 }
 
 MonitorAll() {
-    global SyncInProgress, SyncGroups, SyncRivals, SyncActive, LastActiveHwnd, LastFocusPolicyGroupId
+    global SyncInProgress, SyncGroups, SyncRivals, SyncRivalVisibleMode, SyncActive, UseMaximizedSync
+    global LastActiveHwnd, LastFocusPolicyGroupId
     if (SyncInProgress || !SyncActive)
         return
     SyncInProgress := true
@@ -543,7 +746,7 @@ MonitorAll() {
                 windows.Delete(hwnd)
                 continue
             }
-            curr := WinGetMinMax(hwnd)
+            curr := GetGroupTrackedState(hwnd)
             if (curr != last) {
                 leader := hwnd, newState := curr
                 break
@@ -555,15 +758,7 @@ MonitorAll() {
                 windows[hwnd] := newState
                 if (hwnd == leader)
                     continue
-                try {
-                    if (WinGetMinMax(hwnd) == newState)
-                        continue
-                    switch newState {
-                        case -1: WinMinimize(hwnd)
-                        case 1:  WinMaximize(hwnd)
-                        case 0:  WinRestore(hwnd)
-                    }
-                }
+                try ApplyGroupStateToWindow(hwnd, newState)
             }
 
             ; Preserve original leader focus target when group becomes visible again.
@@ -579,6 +774,8 @@ MonitorAll() {
             hwnds.Push(h)
         if (hwnds.Length != 2)
             continue
+        if (UseMaximizedSync)
+            UpdateRivalVisibleMode(rid, windows)
         for h in hwnds {
             if !WinExist(h)
                 continue
@@ -598,10 +795,22 @@ MonitorAll() {
                 } else {
                     if (WinGetMinMax(follower) == -1)
                         WinRestore(follower)
+                    if (UseMaximizedSync) {
+                        visibleMode := SyncRivalVisibleMode.Has(rid) ? SyncRivalVisibleMode[rid] : 0
+                        if (visibleMode == 1) {
+                            if (WinGetMinMax(follower) != 1)
+                                WinMaximize(follower)
+                        } else {
+                            if (WinGetMinMax(follower) == 1)
+                                WinRestore(follower)
+                        }
+                    }
                     followerNorm := 1
                 }
                 windows[leader] := leaderNorm
                 windows[follower] := followerNorm
+                if (UseMaximizedSync)
+                    UpdateRivalVisibleMode(rid, windows)
                 Sleep(50)
             }
         }
