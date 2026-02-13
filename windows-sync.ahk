@@ -1,5 +1,5 @@
 #Requires AutoHotkey v2.0
-#SingleInstance Force
+#SingleInstance Off
 Persistent
 
 ; ==============================================================================
@@ -7,7 +7,7 @@ Persistent
 ; ==============================================================================
 ;@Ahk2Exe-SetName Windows-Sync
 ;@Ahk2Exe-SetDescription Windows-Sync
-;@Ahk2Exe-SetVersion 1.3.0
+;@Ahk2Exe-SetVersion 1.6.0
 ;@Ahk2Exe-AddResource icon.ico, 160  ; Sets the main icon in the executable
 ;@Ahk2Exe-SetMainIcon icon.ico
 
@@ -16,6 +16,7 @@ Persistent
 ; ==============================================================================
 global ProjectName := "Windows-Sync"
 global IconPath := A_ScriptDir . "\icon.ico"
+global WM_APP_SHOW_GUI := 0x8001
 
 ; Sets the tray icon (near the clock)
 if A_IsCompiled {
@@ -28,6 +29,9 @@ if A_IsCompiled {
 }
 
 A_IconTip := ProjectName . " - Stopped"
+
+OnMessage(WM_APP_SHOW_GUI, HandleShowGuiMessage)
+ActivateRunningInstanceOrExit()
 
 ; ==============================================================================
 ; CONFIGURATION AND STATE
@@ -50,9 +54,77 @@ global BtnRefreshW := 120
 global BtnStartW := 150
 global BtnExitW := 90
 
+global ConfigPath := A_ScriptDir . "\config.json"
+global ConfigData := Map()
+global BlacklistProcessTerms := []
+global BlacklistTitleTerms := []
+global BlacklistManagerGui := 0
+global BlacklistManagerLV := 0
+global BlacklistTypeDDL := 0
+global BlacklistTermEdit := 0
+global BtnManageBlacklist := 0
+global BlacklistRowMenu := 0
+global BlacklistContextRow := 0
+global BlacklistContextExe := ""
+global BlacklistContextTitle := ""
+
+EnsureConfigReady()
+
 ; ==============================================================================
 ; TRAY MENU CONFIGURATION
 ; ==============================================================================
+ActivateRunningInstanceOrExit() {
+    global ProjectName, WM_APP_SHOW_GUI
+
+    detectHidden := A_DetectHiddenWindows
+    DetectHiddenWindows(true)
+
+    existingHwnd := 0
+    try {
+        for hwnd in WinGetList(A_ScriptFullPath " ahk_class AutoHotkey") {
+            if (hwnd != A_ScriptHwnd) {
+                existingHwnd := hwnd
+                break
+            }
+        }
+    }
+
+    if (existingHwnd && existingHwnd != A_ScriptHwnd) {
+        try PostMessage(WM_APP_SHOW_GUI, 0, 0, , "ahk_id " existingHwnd)
+
+        ; Fallback to ensure visible activation even if internal message is delayed.
+        try {
+            guiHwnd := WinExist(ProjectName " ahk_class AutoHotkeyGUI")
+            if (guiHwnd) {
+                WinShow("ahk_id " guiHwnd)
+                if (WinGetMinMax(guiHwnd) == -1)
+                    WinRestore(guiHwnd)
+                WinActivate(guiHwnd)
+            }
+        }
+
+        DetectHiddenWindows(detectHidden)
+        ExitApp()
+    }
+
+    DetectHiddenWindows(detectHidden)
+}
+
+TryShowGuiFromExternalRequest(attempt := 1) {
+    try {
+        ShowGui()
+        return
+    } catch {
+        if (attempt < 20)
+            SetTimer(TryShowGuiFromExternalRequest.Bind(attempt + 1), -75)
+    }
+}
+
+HandleShowGuiMessage(wParam, lParam, msg, hwnd) {
+    TryShowGuiFromExternalRequest()
+    return 1
+}
+
 ExitAllAndCloseApp(*) {
     global SyncActive, SyncInProgress, SyncGroups, SyncRivals, SyncRivalVisibleMode, PersistentAssignments
     global LastActiveHwnd, LastFocusPolicyGroupId, BtnStart
@@ -94,7 +166,7 @@ SetupTrayMenu()
 ; ==============================================================================
 ; RESPONSIVE INTERFACE (v2.8.2)
 ; ==============================================================================
-global MainGui := Gui("+Resize +MinSize600x750", ProjectName)
+global MainGui := Gui("+Resize +MinSize600x780", ProjectName)
 MainGui.OnEvent("Close", Gui_Close)
 MainGui.OnEvent("Size", Gui_Size) 
 
@@ -130,6 +202,7 @@ LV.ModifyCol(2, 130)
 LV.ModifyCol(3, 120) 
 LV.ModifyCol(4, 300) 
 LV.OnEvent("Click", LV_Click)
+LV.OnEvent("ContextMenu", LV_ContextMenu)
 
 ; Shortcuts Section
 global GroupShortcuts := MainGui.Add("GroupBox", "xm y+30 w580 h70", "Shortcuts")
@@ -139,12 +212,14 @@ global ChkTab := MainGui.Add("Checkbox", "x+20 yp w160 h20", "Enable Ctrl+Shift+
 ChkTab.Value := UseTab
 
 ; Options Section
-global GroupOptions := MainGui.Add("GroupBox", "xm y+10 w580 h95", "Options")
+global GroupOptions := MainGui.Add("GroupBox", "xm y+10 w580 h125", "Options")
 global ChkTray := MainGui.Add("Checkbox", "xp+20 yp+30 w220 h20", "Minimize to Tray on Close")
 ChkTray.Value := true ; Default to Close = Minimize to Tray
 global ChkSyncMaximized := MainGui.Add("Checkbox", "xp yp+25 w300 h20", "Sync Maximized State (Groups/Rivals)")
 ChkSyncMaximized.Value := UseMaximizedSync
 ChkSyncMaximized.OnEvent("Click", OnSyncMaximizedToggle)
+global BtnManageBlacklist := MainGui.Add("Button", "xp yp+27 w170 h23", "Manage Blacklist")
+BtnManageBlacklist.OnEvent("Click", ShowBlacklistManager)
 
 ; Actions Footer
 btnTotalW := BtnRefreshW + BtnStartW + BtnExitW + (BtnGap * 2)
@@ -174,8 +249,12 @@ AssignMenu.Disable("RIVALS")
 Loop 3
     AssignMenu.Add("Rival " A_Index, SetAssignmentFromMenu)
 
+global BlacklistRowMenu := Menu()
+BlacklistRowMenu.Add("Add Process Name to Blacklist", AddContextProcessToBlacklist)
+BlacklistRowMenu.Add("Add Window Title to Blacklist", AddContextTitleToBlacklist)
+
 UpdateList()
-MainGui.Show("w620 h750")
+MainGui.Show("w620 h780")
 
 ShowGui(*) {
     global SyncActive, BtnStart, UseEsc, UseTab, UseMaximizedSync, ChkEsc, ChkTab, ChkSyncMaximized
@@ -219,7 +298,7 @@ Gui_Size(thisGui, WindowState, Width, Height) {
     ; Vertical stack from bottom to top to keep spacing stable:
     ; Actions -> Options -> Shortcuts -> Active Windows
     yActions := Height - 90
-    yOptions := yActions - 105
+    yOptions := yActions - 130
     yShortcuts := yOptions - 80
      
     Header1.Move(m, , w)
@@ -241,9 +320,10 @@ Gui_Size(thisGui, WindowState, Width, Height) {
     ChkEsc.Move(m + 20, yShortcuts + 30)
     ChkTab.Move(m + 130, yShortcuts + 30)
 
-    GroupOptions.Move(m, yOptions, w, 95)
+    GroupOptions.Move(m, yOptions, w, 125)
     ChkTray.Move(m + 20, yOptions + 30)
     ChkSyncMaximized.Move(m + 20, yOptions + 55)
+    BtnManageBlacklist.Move(m + 20, yOptions + 82)
 
     totalButtonsW := BtnRefreshW + BtnStartW + BtnExitW + (BtnGap * 2)
     buttonsStartX := m + Floor((w - totalButtonsW) / 2)
@@ -260,6 +340,427 @@ Gui_Size(thisGui, WindowState, Width, Height) {
 ; ==============================================================================
 ; INTERFACE LOGIC
 ; ==============================================================================
+
+SetMainStatus(message) {
+    global StatusBar
+    try StatusBar.SetText(message)
+}
+
+GetDefaultConfig() {
+    return Map(
+        "schemaVersion", 1,
+        "blacklist", Map(
+            "matchMode", "contains_ci",
+            "processTerms", [],
+            "titleTerms", []
+        )
+    )
+}
+
+NormalizeBlacklistTerm(term) {
+    term := Trim(term)
+    return term
+}
+
+TermExists(list, term) {
+    needle := StrLower(NormalizeBlacklistTerm(term))
+    if (needle == "")
+        return false
+    for _, existing in list {
+        if (StrLower(NormalizeBlacklistTerm(existing)) == needle)
+            return true
+    }
+    return false
+}
+
+DeduplicateTerms(sourceTerms) {
+    result := []
+    if (Type(sourceTerms) != "Array")
+        return result
+    for _, raw in sourceTerms {
+        term := NormalizeBlacklistTerm(raw)
+        if (term == "")
+            continue
+        if !TermExists(result, term)
+            result.Push(term)
+    }
+    return result
+}
+
+CopyStringArray(sourceTerms) {
+    copy := []
+    if (Type(sourceTerms) != "Array")
+        return copy
+    for _, item in sourceTerms
+        copy.Push(item)
+    return copy
+}
+
+EnsureConfigShape(configObj) {
+    cfg := configObj
+    if (Type(cfg) != "Map")
+        cfg := GetDefaultConfig()
+
+    if !cfg.Has("schemaVersion")
+        cfg["schemaVersion"] := 1
+
+    if (!cfg.Has("blacklist") || Type(cfg["blacklist"]) != "Map")
+        cfg["blacklist"] := Map()
+
+    blacklist := cfg["blacklist"]
+    if (!blacklist.Has("matchMode") || blacklist["matchMode"] != "contains_ci")
+        blacklist["matchMode"] := "contains_ci"
+    if (!blacklist.Has("processTerms") || Type(blacklist["processTerms"]) != "Array")
+        blacklist["processTerms"] := []
+    if (!blacklist.Has("titleTerms") || Type(blacklist["titleTerms"]) != "Array")
+        blacklist["titleTerms"] := []
+
+    blacklist["processTerms"] := DeduplicateTerms(blacklist["processTerms"])
+    blacklist["titleTerms"] := DeduplicateTerms(blacklist["titleTerms"])
+    return cfg
+}
+
+ApplyConfigToBlacklist(configObj) {
+    global BlacklistProcessTerms, BlacklistTitleTerms
+    cfg := EnsureConfigShape(configObj)
+    blacklist := cfg["blacklist"]
+
+    BlacklistProcessTerms := CopyStringArray(blacklist["processTerms"])
+    BlacklistTitleTerms := CopyStringArray(blacklist["titleTerms"])
+}
+
+SaveConfig() {
+    global ConfigPath, ConfigData, BlacklistProcessTerms, BlacklistTitleTerms
+
+    cfg := GetDefaultConfig()
+    cfg["blacklist"]["processTerms"] := DeduplicateTerms(BlacklistProcessTerms)
+    cfg["blacklist"]["titleTerms"] := DeduplicateTerms(BlacklistTitleTerms)
+    ConfigData := cfg
+
+    json := Json_Dump(cfg, 2) . "`n"
+    try FileDelete(ConfigPath)
+    try {
+        FileAppend(json, ConfigPath, "UTF-8")
+        return true
+    } catch {
+        return false
+    }
+}
+
+ResetConfigToDefaultAndSave() {
+    global ConfigData
+    cfg := GetDefaultConfig()
+    ConfigData := cfg
+    ApplyConfigToBlacklist(cfg)
+    return SaveConfig()
+}
+
+LoadConfig() {
+    global ConfigPath, ConfigData
+
+    if !FileExist(ConfigPath)
+        return ResetConfigToDefaultAndSave()
+
+    try jsonText := FileRead(ConfigPath, "UTF-8")
+    catch {
+        return ResetConfigToDefaultAndSave()
+    }
+
+    if (SubStr(jsonText, 1, 1) == Chr(0xFEFF))
+        jsonText := SubStr(jsonText, 2)
+
+    if (Trim(jsonText) == "")
+        return ResetConfigToDefaultAndSave()
+
+    try cfg := Json_Load(jsonText)
+    catch {
+        return ResetConfigToDefaultAndSave()
+    }
+
+    cfg := EnsureConfigShape(cfg)
+    ConfigData := cfg
+    ApplyConfigToBlacklist(cfg)
+    return SaveConfig()
+}
+
+EnsureConfigReady() {
+    global ConfigData
+    if LoadConfig()
+        return
+
+    ConfigData := GetDefaultConfig()
+    ApplyConfigToBlacklist(ConfigData)
+    SaveConfig()
+}
+
+IsBlacklistedWindow(exeName, title) {
+    global BlacklistProcessTerms, BlacklistTitleTerms
+    exeLower := StrLower(exeName)
+    titleLower := StrLower(title)
+
+    for _, term in BlacklistProcessTerms {
+        needle := StrLower(NormalizeBlacklistTerm(term))
+        if (needle != "" && InStr(exeLower, needle))
+            return true
+    }
+    for _, term in BlacklistTitleTerms {
+        needle := StrLower(NormalizeBlacklistTerm(term))
+        if (needle != "" && InStr(titleLower, needle))
+            return true
+    }
+    return false
+}
+
+NotifyBlacklistUpdated() {
+    global SyncActive
+    if (SyncActive)
+        SetMainStatus("Blacklist updated. Full sync scope applies on next Sync All.")
+    else
+        SetMainStatus("Blacklist updated.")
+}
+
+RefreshBlacklistManagerList() {
+    global BlacklistManagerLV, BlacklistProcessTerms, BlacklistTitleTerms
+    if !IsObject(BlacklistManagerLV)
+        return
+
+    BlacklistManagerLV.Delete()
+
+    processMap := Map()
+    titleMap := Map()
+
+    for _, term in BlacklistProcessTerms {
+        key := StrLower(NormalizeBlacklistTerm(term))
+        if (key == "")
+            continue
+        if !processMap.Has(key)
+            processMap[key] := term
+    }
+    for _, term in BlacklistTitleTerms {
+        key := StrLower(NormalizeBlacklistTerm(term))
+        if (key == "")
+            continue
+        if !titleMap.Has(key)
+            titleMap[key] := term
+    }
+
+    for key, term in processMap {
+        if titleMap.Has(key) {
+            BlacklistManagerLV.Add("", "Process or Title", term)
+            titleMap.Delete(key)
+        } else {
+            BlacklistManagerLV.Add("", "Process", term)
+        }
+    }
+    for _, term in titleMap
+        BlacklistManagerLV.Add("", "Title", term)
+}
+
+GetBlacklistTermIndex(targetList, term) {
+    needle := StrLower(NormalizeBlacklistTerm(term))
+    if (needle == "")
+        return 0
+
+    for idx, existing in targetList {
+        if (StrLower(NormalizeBlacklistTerm(existing)) == needle)
+            return idx
+    }
+    return 0
+}
+
+AddBlacklistTerm(targetType, term) {
+    global BlacklistProcessTerms, BlacklistTitleTerms
+    term := NormalizeBlacklistTerm(term)
+    if (term == "") {
+        SetMainStatus("Blacklist term is empty.")
+        return false
+    }
+
+    targetType := StrLower(targetType)
+    addedAny := false
+
+    if (targetType == "title") {
+        if !TermExists(BlacklistTitleTerms, term) {
+            BlacklistTitleTerms.Push(term)
+            addedAny := true
+        }
+    } else if (targetType == "both") {
+        if !TermExists(BlacklistProcessTerms, term) {
+            BlacklistProcessTerms.Push(term)
+            addedAny := true
+        }
+        if !TermExists(BlacklistTitleTerms, term) {
+            BlacklistTitleTerms.Push(term)
+            addedAny := true
+        }
+    } else {
+        if !TermExists(BlacklistProcessTerms, term) {
+            BlacklistProcessTerms.Push(term)
+            addedAny := true
+        }
+    }
+
+    if !addedAny {
+        SetMainStatus("Blacklist term already exists.")
+        return false
+    }
+
+    if !SaveConfig() {
+        SetMainStatus("Failed to save config.json.")
+        return false
+    }
+
+    RefreshBlacklistManagerList()
+    UpdateList()
+    NotifyBlacklistUpdated()
+    return true
+}
+
+RemoveBlacklistTerm(targetType, term) {
+    global BlacklistProcessTerms, BlacklistTitleTerms
+    term := NormalizeBlacklistTerm(term)
+    if (term == "") {
+        SetMainStatus("Blacklist term is empty.")
+        return false
+    }
+
+    targetType := StrLower(targetType)
+    removedAny := false
+
+    if (targetType == "title") {
+        idxToRemove := GetBlacklistTermIndex(BlacklistTitleTerms, term)
+        if (idxToRemove) {
+            BlacklistTitleTerms.RemoveAt(idxToRemove)
+            removedAny := true
+        }
+    } else if (targetType == "both") {
+        idxToRemove := GetBlacklistTermIndex(BlacklistProcessTerms, term)
+        if (idxToRemove) {
+            BlacklistProcessTerms.RemoveAt(idxToRemove)
+            removedAny := true
+        }
+        idxToRemove := GetBlacklistTermIndex(BlacklistTitleTerms, term)
+        if (idxToRemove) {
+            BlacklistTitleTerms.RemoveAt(idxToRemove)
+            removedAny := true
+        }
+    } else {
+        idxToRemove := GetBlacklistTermIndex(BlacklistProcessTerms, term)
+        if (idxToRemove) {
+            BlacklistProcessTerms.RemoveAt(idxToRemove)
+            removedAny := true
+        }
+    }
+
+    if !removedAny {
+        SetMainStatus("Blacklist term not found.")
+        return false
+    }
+
+    if !SaveConfig() {
+        SetMainStatus("Failed to save config.json.")
+        return false
+    }
+
+    RefreshBlacklistManagerList()
+    UpdateList()
+    NotifyBlacklistUpdated()
+    return true
+}
+
+BlacklistManager_Add(*) {
+    global BlacklistTypeDDL, BlacklistTermEdit
+    if !IsObject(BlacklistTypeDDL) || !IsObject(BlacklistTermEdit)
+        return
+
+    targetTypeText := BlacklistTypeDDL.Text
+    targetType := (targetTypeText == "Title") ? "title" : ((targetTypeText == "Process") ? "process" : "both")
+    term := BlacklistTermEdit.Value
+    if AddBlacklistTerm(targetType, term) {
+        BlacklistTermEdit.Value := ""
+        try BlacklistTermEdit.Focus()
+    }
+}
+
+BlacklistManager_RemoveSelected(*) {
+    global BlacklistManagerLV
+    if !IsObject(BlacklistManagerLV)
+        return
+
+    row := BlacklistManagerLV.GetNext(0)
+    if (!row) {
+        SetMainStatus("Select a blacklist entry to remove.")
+        return
+    }
+
+    itemType := BlacklistManagerLV.GetText(row, 1)
+    itemTerm := BlacklistManagerLV.GetText(row, 2)
+    targetType := (itemType == "Title") ? "title" : ((itemType == "Process") ? "process" : "both")
+    RemoveBlacklistTerm(targetType, itemTerm)
+}
+
+BlacklistManager_Close(*) {
+    global BlacklistManagerGui, BlacklistManagerLV, BlacklistTypeDDL, BlacklistTermEdit
+    if IsObject(BlacklistManagerGui) {
+        try BlacklistManagerGui.Destroy()
+    }
+    BlacklistManagerGui := 0
+    BlacklistManagerLV := 0
+    BlacklistTypeDDL := 0
+    BlacklistTermEdit := 0
+}
+
+ShowBlacklistManager(*) {
+    global MainGui
+    global BlacklistManagerGui, BlacklistManagerLV, BlacklistTypeDDL, BlacklistTermEdit
+
+    if IsObject(BlacklistManagerGui) {
+        try {
+            RefreshBlacklistManagerList()
+            BlacklistManagerGui.Show()
+            WinActivate("ahk_id " BlacklistManagerGui.Hwnd)
+            return
+        } catch {
+            BlacklistManager_Close()
+        }
+    }
+
+    BlacklistManagerGui := Gui("+Owner" MainGui.Hwnd, "Manage Blacklist")
+    BlacklistManagerGui.OnEvent("Close", BlacklistManager_Close)
+    BlacklistManagerGui.SetFont("s9", "Segoe UI")
+
+    BlacklistManagerLV := BlacklistManagerGui.Add("ListView", "xm ym w460 h240 Grid -Multi", ["Type", "Keyword"])
+    BlacklistManagerLV.ModifyCol(1, 140)
+    BlacklistManagerLV.ModifyCol(2, 290)
+
+    BlacklistTypeDDL := BlacklistManagerGui.Add("DropDownList", "xm y+12 w160 Choose1", ["Process or Title", "Process", "Title"])
+    BlacklistTermEdit := BlacklistManagerGui.Add("Edit", "x+10 yp w220", "")
+    BtnAddTerm := BlacklistManagerGui.Add("Button", "x+10 yp-1 w100 h24", "Add")
+    BtnAddTerm.OnEvent("Click", BlacklistManager_Add)
+
+    BtnRemoveTerm := BlacklistManagerGui.Add("Button", "xm y+12 w130 h26", "Remove Selected")
+    BtnRemoveTerm.OnEvent("Click", BlacklistManager_RemoveSelected)
+
+    BtnCloseBlacklist := BlacklistManagerGui.Add("Button", "x+10 yp w90 h26", "Close")
+    BtnCloseBlacklist.OnEvent("Click", BlacklistManager_Close)
+
+    RefreshBlacklistManagerList()
+    BlacklistManagerGui.Show("w485 h335")
+}
+
+AddContextProcessToBlacklist(*) {
+    global BlacklistContextExe
+    if (NormalizeBlacklistTerm(BlacklistContextExe) == "")
+        return
+    AddBlacklistTerm("process", BlacklistContextExe)
+}
+
+AddContextTitleToBlacklist(*) {
+    global BlacklistContextTitle
+    if (NormalizeBlacklistTerm(BlacklistContextTitle) == "")
+        return
+    AddBlacklistTerm("title", BlacklistContextTitle)
+}
 
 UpdateList() {
     LV.Delete()
@@ -285,6 +786,9 @@ UpdateList() {
             exeName := "unknown"
         }
 
+        if IsBlacklistedWindow(exeName, title)
+            continue
+
         assign := PersistentAssignments.Has(hwnd) ? PersistentAssignments[hwnd] : "---"
         LV.Add("", hwnd, assign, exeName, title)
     }
@@ -292,11 +796,22 @@ UpdateList() {
     StatusBar.SetText("List updated.")
 }
 
-LV_Click(LV, RowNumber) {
+LV_Click(LV, RowNumber, IsRightClick := false, *) {
     global SyncActive
-    if (SyncActive || RowNumber == 0)
+    if (SyncActive || RowNumber == 0 || IsRightClick)
         return
     AssignMenu.Show()
+}
+
+LV_ContextMenu(LV, RowNumber, *) {
+    global BlacklistRowMenu, BlacklistContextRow, BlacklistContextExe, BlacklistContextTitle
+    if (RowNumber == 0)
+        return
+
+    BlacklistContextRow := RowNumber
+    BlacklistContextExe := LV.GetText(RowNumber, 3)
+    BlacklistContextTitle := LV.GetText(RowNumber, 4)
+    BlacklistRowMenu.Show()
 }
 
 SetSyncUiLocked(isLocked) {
@@ -308,6 +823,7 @@ SetSyncUiLocked(isLocked) {
     ChkTab.Enabled := true
     ChkTray.Enabled := true
     ChkSyncMaximized.Enabled := true
+    BtnManageBlacklist.Enabled := true
 }
 
 SetAssignmentFromMenu(ItemName, ItemPos, MyMenu) {
@@ -867,3 +1383,289 @@ MonitorAll() {
         ShowGui()
 }
 #HotIf
+
+; ==============================================================================
+; JSON HELPERS
+; ==============================================================================
+
+Json_Load(jsonText) {
+    pos := 1
+    value := Json_ParseValue(jsonText, &pos)
+    Json_SkipWhitespace(jsonText, &pos)
+    if (pos <= StrLen(jsonText))
+        throw Error("Invalid JSON: trailing data.")
+    return value
+}
+
+Json_CharCodeAt(jsonText, pos) {
+    if (pos < 1 || pos > StrLen(jsonText))
+        return -1
+    return Ord(SubStr(jsonText, pos, 1))
+}
+
+Json_ExpectCode(jsonText, &pos, expectedCode, expectedLabel) {
+    code := Json_CharCodeAt(jsonText, pos)
+    if (code != expectedCode)
+        throw Error("Invalid JSON: expected " expectedLabel " at position " pos ".")
+    pos++
+}
+
+Json_ParseLiteral(jsonText, &pos, literalText, literalValue) {
+    literalLen := StrLen(literalText)
+    if (SubStr(jsonText, pos, literalLen) != literalText)
+        throw Error("Invalid JSON literal near position " pos ".")
+    pos += literalLen
+    return literalValue
+}
+
+Json_ParseNumber(jsonText, &pos) {
+    remain := SubStr(jsonText, pos)
+    if !RegExMatch(remain, "^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+\-]?\d+)?", &match)
+        throw Error("Invalid JSON value near position " pos ".")
+
+    numText := match[0]
+    pos += StrLen(numText)
+    if (InStr(numText, ".") || InStr(numText, "e") || InStr(numText, "E"))
+        return numText + 0
+    return Integer(numText)
+}
+
+Json_ParseValue(jsonText, &pos) {
+    Json_SkipWhitespace(jsonText, &pos)
+    if (pos > StrLen(jsonText))
+        throw Error("Invalid JSON: unexpected end of data.")
+
+    code := Json_CharCodeAt(jsonText, pos)
+    switch code {
+        case 123: ; {
+            return Json_ParseObject(jsonText, &pos)
+        case 91: ; [
+            return Json_ParseArray(jsonText, &pos)
+        case 34: ; "
+            return Json_ParseString(jsonText, &pos)
+        case 116: ; t
+            return Json_ParseLiteral(jsonText, &pos, "true", true)
+        case 102: ; f
+            return Json_ParseLiteral(jsonText, &pos, "false", false)
+        case 110: ; n
+            return Json_ParseLiteral(jsonText, &pos, "null", "")
+    }
+    return Json_ParseNumber(jsonText, &pos)
+}
+
+Json_ParseObject(jsonText, &pos) {
+    Json_ExpectCode(jsonText, &pos, 123, "'{'")
+
+    obj := Map()
+    Json_SkipWhitespace(jsonText, &pos)
+    if (Json_CharCodeAt(jsonText, pos) == 125) { ; }
+        pos++
+        return obj
+    }
+
+    loop {
+        Json_SkipWhitespace(jsonText, &pos)
+        key := Json_ParseString(jsonText, &pos)
+        Json_SkipWhitespace(jsonText, &pos)
+        Json_ExpectCode(jsonText, &pos, 58, "':'")
+
+        value := Json_ParseValue(jsonText, &pos)
+        obj[key] := value
+
+        Json_SkipWhitespace(jsonText, &pos)
+        code := Json_CharCodeAt(jsonText, pos)
+        if (code == 44) { ; ,
+            pos++
+            continue
+        }
+        if (code == 125) { ; }
+            pos++
+            break
+        }
+        throw Error("Invalid JSON object: expected ',' or '}' at position " pos ".")
+    }
+    return obj
+}
+
+Json_ParseArray(jsonText, &pos) {
+    Json_ExpectCode(jsonText, &pos, 91, "'['")
+
+    arr := []
+    Json_SkipWhitespace(jsonText, &pos)
+    if (Json_CharCodeAt(jsonText, pos) == 93) { ; ]
+        pos++
+        return arr
+    }
+
+    loop {
+        value := Json_ParseValue(jsonText, &pos)
+        arr.Push(value)
+
+        Json_SkipWhitespace(jsonText, &pos)
+        code := Json_CharCodeAt(jsonText, pos)
+        if (code == 44) { ; ,
+            pos++
+            continue
+        }
+        if (code == 93) { ; ]
+            pos++
+            break
+        }
+        throw Error("Invalid JSON array: expected ',' or ']' at position " pos ".")
+    }
+    return arr
+}
+
+Json_ParseEscapedChar(jsonText, &pos) {
+    if (pos > StrLen(jsonText))
+        throw Error("Invalid JSON escape at end of data.")
+
+    esc := Json_CharCodeAt(jsonText, pos)
+    pos++
+    switch esc {
+        case 34, 47, 92: ; ", /, \
+            return Chr(esc)
+        case 98: ; b
+            return Chr(8)
+        case 102: ; f
+            return Chr(12)
+        case 110: ; n
+            return "`n"
+        case 114: ; r
+            return "`r"
+        case 116: ; t
+            return "`t"
+        case 117: ; u
+            hex := SubStr(jsonText, pos, 4)
+            if (StrLen(hex) < 4 || !RegExMatch(hex, "^[0-9A-Fa-f]{4}$"))
+                throw Error("Invalid JSON unicode escape near position " pos ".")
+            pos += 4
+            return Chr(Integer("0x" hex))
+        default:
+            throw Error("Invalid JSON escape sequence near position " (pos - 1) ".")
+    }
+}
+
+Json_ParseString(jsonText, &pos) {
+    Json_ExpectCode(jsonText, &pos, 34, "opening quote")
+
+    out := ""
+    len := StrLen(jsonText)
+    while (pos <= len) {
+        code := Json_CharCodeAt(jsonText, pos)
+        pos++
+
+        if (code == 34)
+            return out
+
+        if (code == 92) {
+            out .= Json_ParseEscapedChar(jsonText, &pos)
+            continue
+        }
+
+        out .= Chr(code)
+    }
+
+    throw Error("Unterminated JSON string.")
+}
+
+Json_SkipWhitespace(jsonText, &pos) {
+    len := StrLen(jsonText)
+    while (pos <= len) {
+        code := Json_CharCodeAt(jsonText, pos)
+        if (code == 32 || code == 9 || code == 10 || code == 13)
+            pos++
+        else
+            break
+    }
+}
+
+Json_Dump(value, indent := 2) {
+    return Json_DumpValue(value, indent, 0)
+}
+
+Json_DumpValue(value, indent, level) {
+    t := Type(value)
+    if (t == "Map")
+        return Json_DumpMap(value, indent, level)
+    if (t == "Array")
+        return Json_DumpArray(value, indent, level)
+    if (t == "String")
+        return Json_DumpString(value)
+    if (t == "Integer" || t == "Float")
+        return value
+    if (value == true)
+        return "true"
+    if (value == false)
+        return "false"
+    return Json_DumpString(value)
+}
+
+Json_DumpMap(mapObj, indent, level) {
+    if (mapObj.Count == 0)
+        return "{}"
+
+    parts := []
+    for key, val in mapObj {
+        pair := Json_DumpString(key)
+        if (indent > 0)
+            pair .= ": " Json_DumpValue(val, indent, level + 1)
+        else
+            pair .= ":" Json_DumpValue(val, indent, level + 1)
+        parts.Push(pair)
+    }
+
+    if (indent <= 0)
+        return "{" . Json_Join(parts, ",") . "}"
+
+    innerIndent := Json_Repeat(" ", (level + 1) * indent)
+    outerIndent := Json_Repeat(" ", level * indent)
+    return "{`n" . innerIndent . Json_Join(parts, ",`n" . innerIndent) . "`n" . outerIndent . "}"
+}
+
+Json_DumpArray(arrObj, indent, level) {
+    if (arrObj.Length == 0)
+        return "[]"
+
+    parts := []
+    for _, val in arrObj
+        parts.Push(Json_DumpValue(val, indent, level + 1))
+
+    if (indent <= 0)
+        return "[" . Json_Join(parts, ",") . "]"
+
+    innerIndent := Json_Repeat(" ", (level + 1) * indent)
+    outerIndent := Json_Repeat(" ", level * indent)
+    return "[`n" . innerIndent . Json_Join(parts, ",`n" . innerIndent) . "`n" . outerIndent . "]"
+}
+
+Json_DumpString(text) {
+    quote := Chr(34)
+    slash := Chr(92)
+    s := text
+    s := StrReplace(s, slash, slash . slash)
+    s := StrReplace(s, quote, slash . quote)
+    s := StrReplace(s, Chr(8), slash . "b")
+    s := StrReplace(s, Chr(12), slash . "f")
+    s := StrReplace(s, "`n", slash . "n")
+    s := StrReplace(s, "`r", slash . "r")
+    s := StrReplace(s, "`t", slash . "t")
+    return quote . s . quote
+}
+
+Json_Repeat(str, count) {
+    out := ""
+    Loop count
+        out .= str
+    return out
+}
+
+Json_Join(parts, separator) {
+    out := ""
+    for idx, item in parts {
+        if (idx > 1)
+            out .= separator
+        out .= item
+    }
+    return out
+}

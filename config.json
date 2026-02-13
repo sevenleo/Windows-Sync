@@ -1,0 +1,8 @@
+﻿{
+  "blacklist": {
+    "matchMode": "contains_ci",
+    "processTerms": [],
+    "titleTerms": []
+  },
+  "schemaVersion": 1
+}

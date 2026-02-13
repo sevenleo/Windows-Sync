@@ -1,4 +1,4 @@
-# Windows-Sync v1.4.0
+# Windows-Sync v1.6.0
 
 ## Description
 
@@ -6,12 +6,12 @@ A professional and robust **AutoHotkey v2** script to synchronize window states 
 
 Windows-Sync provides a responsive interface, **native tray integration**, support for multiple independent groups, rivals logic, and a complete visual identity.
 
-## What's New in v1.4.0
+## What's New in v1.6.0
 
-- ✅ **Optional Maximized Sync (Groups + Rivals)** - New `Sync Maximized State (Groups/Rivals)` option in **Options**.
-- ✅ **Default Safer Behavior** - Maximized-state sync is now **disabled by default**; visibility/minimized sync remains active.
-- ✅ **Immediate Runtime Toggle** - Turning the option on/off while sync is active applies immediately without restarting sync.
-- ✅ **Rivals Visible-Mode Tracking** - When enabled, Rival restore now preserves normal/maximized visible mode.
+- ✅ **Blacklist with Persistent Config** - Added `config.json` with blacklist support for process names and window titles.
+- ✅ **Manage Blacklist UI** - New `Manage Blacklist` button in `Options` to list/add/remove blacklist terms.
+- ✅ **Quick Blacklist from Window Row** - Right-click any listed window to add its process name or title directly to the blacklist.
+- ✅ **Case-Insensitive Contains Matching** - Filtering is applied using substring matching (`contains_ci`) for process and title terms.
 
 ## Key Features
 
@@ -28,8 +28,11 @@ Windows-Sync provides a responsive interface, **native tray integration**, suppo
 - ✅ **Session Memory** - The script remembers your assignments between activations, allowing quick adjustments without losing previous work.
 
 ### Interface and Usability (UX)
+- ✅ **Single-Instance Protection** - Prevents duplicate launches of the same file and reuses the active instance UI.
 - ✅ **Tray Menu & Background Mode** - Control synchronization directly from the system tray. Use the new **"Minimize to Tray"** option to keep the app running silently in the background.
 - ✅ **Sync Behavior Toggle in Options** - Enable or disable maximized-state synchronization at any time.
+- ✅ **Blacklist Manager in Options** - Open a dedicated manager window to maintain blacklist entries.
+- ✅ **Row Context Blacklist Actions** - Add process/title terms directly from any `Active Windows` row.
 - ✅ **Responsive Layout** - Interface that adapts to resizing, with flexible columns.
 - ✅ **Executable Identification** - View the process name (`chrome.exe`, `Code.exe`) to easily identify windows.
 - ✅ **Direct Manipulation** - Click on any line in the list to open the instant assignment menu.
@@ -48,10 +51,34 @@ Windows-Sync provides a responsive interface, **native tray integration**, suppo
 2. **Options:** 
    - Check **"Minimize to Tray on Close"** to keep the app running in the background.
    - Enable **"Sync Maximized State (Groups/Rivals)"** if you also want normal/maximized state propagation.
+   - Click **"Manage Blacklist"** to list, add, and remove blacklist terms.
    - Configure return shortcuts (**ESC**, **Ctrl+Shift+Tab**).
 3. **Synchronize:** Click "Sync All" (or use "Toggle Sync" from the tray). Monitoring begins and the button changes to **Stop**.
 4. **Review While Active:** You can keep the GUI open (or reopen via tray/shortcut) without cancelling synchronization.
 5. **Stop:** Click **Stop** in the GUI or use the Tray Menu.
+6. **Relaunch Behavior:** If you run the same `.ahk` or `.exe` again, Windows-Sync brings the existing instance window to front instead of opening a new one.
+7. **Quick Blacklist:** Right-click a window row to add that row’s process name or title to blacklist.
+
+## Configuration (`config.json`)
+
+Windows-Sync now stores runtime settings in `config.json` at the script root (`A_ScriptDir`).
+
+Current schema:
+
+```json
+{
+  "schemaVersion": 1,
+  "blacklist": {
+    "matchMode": "contains_ci",
+    "processTerms": [],
+    "titleTerms": []
+  }
+}
+```
+
+- `processTerms`: hides rows when the executable name contains a term.
+- `titleTerms`: hides rows when the window title contains a term.
+- Matching is case-insensitive and applied immediately to `Active Windows`.
 
 ### Focus Behavior (Groups)
 1. Focus policy is applied when focus changes from a non-group window to a Group window.
