@@ -37,6 +37,8 @@ global SyncInProgress := false
 global SyncGroups := Map() 
 global SyncRivals := Map() 
 global PersistentAssignments := Map() 
+global LastActiveHwnd := 0
+global LastFocusPolicyGroupId := 0
 
 global UseEsc := true
 global UseTab := true
@@ -246,7 +248,7 @@ SetAssignmentFromMenu(ItemName, ItemPos, MyMenu) {
 ; ==============================================================================
 
 ToggleSync(*) {
-    global SyncActive, SyncGroups, SyncRivals, StatusBar, BtnStart, PersistentAssignments, UseEsc, UseTab
+    global SyncActive, SyncGroups, SyncRivals, StatusBar, BtnStart, PersistentAssignments, UseEsc, UseTab, LastActiveHwnd, LastFocusPolicyGroupId
     if (SyncActive) {
         StopSync()
         return
@@ -305,6 +307,8 @@ ToggleSync(*) {
         }
     }
     SyncActive := true
+    LastActiveHwnd := 0
+    LastFocusPolicyGroupId := 0
     BtnStart.Text := "Stop"
     A_IconTip := ProjectName . " - Active"
     try A_TrayMenu.Rename("Toggle Sync", "Stop Sync")
@@ -315,8 +319,10 @@ ToggleSync(*) {
 }
 
 StopSync() {
-    global SyncActive, StatusBar, BtnStart, MainGui
+    global SyncActive, StatusBar, BtnStart, MainGui, LastActiveHwnd, LastFocusPolicyGroupId
     SyncActive := false
+    LastActiveHwnd := 0
+    LastFocusPolicyGroupId := 0
     SetTimer(MonitorAll, 0)
     BtnStart.Text := "Sync All"
     A_IconTip := ProjectName . " - Stopped"
@@ -325,11 +331,129 @@ StopSync() {
     UpdateList()
 }
 
+GetGroupIdByHwnd(hwnd) {
+    global SyncGroups
+    if (!hwnd)
+        return 0
+    for groupId, windows in SyncGroups {
+        if (windows.Has(hwnd))
+            return groupId
+    }
+    return 0
+}
+
+ActivateWindowAndWait(hwnd, attempts := 3, waitSeconds := 0.10, sleepMs := 25) {
+    if (!WinExist(hwnd))
+        return false
+
+    Loop attempts {
+        try WinActivate(hwnd)
+        try WinWaitActive("ahk_id " hwnd, , waitSeconds)
+
+        curr := 0
+        try curr := WinGetID("A")
+        if (curr == hwnd)
+            return true
+
+        Sleep(sleepMs)
+    }
+    return false
+}
+
+SyncGroupFocusAndZOrder(groupId, activeHwnd) {
+    global SyncGroups
+    if (!groupId || !SyncGroups.Has(groupId) || !WinExist(activeHwnd))
+        return
+
+    windows := SyncGroups[groupId]
+    if (windows.Count == 0)
+        return
+
+    groupHwnds := []
+    for hwnd, _ in windows {
+        if !WinExist(hwnd) {
+            windows.Delete(hwnd)
+            continue
+        }
+        try {
+            curr := WinGetMinMax(hwnd)
+            windows[hwnd] := curr
+            if (curr == -1)
+                continue
+            groupHwnds.Push(hwnd)
+        }
+    }
+
+    if (groupHwnds.Length == 0)
+        return
+
+    IsFocusOutsideGroup := false
+    for _, hwnd in groupHwnds {
+        try {
+            currActive := WinGetID("A")
+            if (currActive && currActive != activeHwnd) {
+                currGroupId := GetGroupIdByHwnd(currActive)
+                if (currGroupId != groupId) {
+                    IsFocusOutsideGroup := true
+                    break
+                }
+            }
+        }
+        if (IsFocusOutsideGroup)
+            break
+    }
+    if (IsFocusOutsideGroup)
+        return
+
+    ; Focuses all other windows in the group first and guarantees the clicked window as final focus target.
+    focusSequence := []
+    for _, hwnd in groupHwnds {
+        if (hwnd == activeHwnd || !WinExist(hwnd))
+            continue
+        focusSequence.Push(hwnd)
+    }
+
+    for _, hwnd in focusSequence {
+        try {
+            currActive := WinGetID("A")
+            if (currActive && currActive != activeHwnd) {
+                currGroupId := GetGroupIdByHwnd(currActive)
+                if (currGroupId != groupId)
+                    return
+            }
+
+            ActivateWindowAndWait(hwnd, 2, 0.08, 20)
+        }
+    }
+
+    currActive := 0
+    try currActive := WinGetID("A")
+    if (currActive && currActive != activeHwnd) {
+        currGroupId := GetGroupIdByHwnd(currActive)
+        if (currGroupId != groupId)
+            return
+    }
+
+    if WinExist(activeHwnd)
+        ActivateWindowAndWait(activeHwnd, 6, 0.12, 30)
+
+    for hwnd, _ in windows {
+        if !WinExist(hwnd) {
+            windows.Delete(hwnd)
+            continue
+        }
+        try windows[hwnd] := WinGetMinMax(hwnd)
+    }
+}
+
 MonitorAll() {
-    global SyncInProgress, SyncGroups, SyncRivals, SyncActive
+    global SyncInProgress, SyncGroups, SyncRivals, SyncActive, LastActiveHwnd, LastFocusPolicyGroupId
     if (SyncInProgress || !SyncActive)
         return
     SyncInProgress := true
+    changedGroups := Map()
+    focusRequests := Map()
+
     for groupId, windows in SyncGroups {
         leader := 0, newState := 0
         for hwnd, last in windows {
@@ -344,6 +468,7 @@ MonitorAll() {
             }
         }
         if (leader) {
+            changedGroups[groupId] := true
             for hwnd, _ in windows {
                 windows[hwnd] := newState
                 if (hwnd == leader)
@@ -358,8 +483,13 @@ MonitorAll() {
                     }
                 }
             }
+
+            ; Preserve original leader focus target when group becomes visible again.
+            if (newState != -1)
+                focusRequests[groupId] := leader
         }
     }
+
     for rid, windows in SyncRivals {
         leader := 0, leaderNorm := 0
         hwnds := []
@@ -394,6 +524,45 @@ MonitorAll() {
             }
         }
     }
+
+    ; Apply focus requests generated by state transitions using the original leader as final target.
+    for groupId, targetHwnd in focusRequests {
+        if (!WinExist(targetHwnd))
+            continue
+        SyncGroupFocusAndZOrder(groupId, targetHwnd)
+        LastFocusPolicyGroupId := groupId
+        newActive := 0
+        try newActive := WinGetID("A")
+        LastActiveHwnd := newActive ? newActive : targetHwnd
+    }
+
+    activeHwnd := 0
+    try activeHwnd := WinGetID("A")
+    if (activeHwnd != LastActiveHwnd) {
+        currGroupId := GetGroupIdByHwnd(activeHwnd)
+
+        ; Focus is outside any group: reset focus policy tracking.
+        if (!currGroupId) {
+            LastFocusPolicyGroupId := 0
+            LastActiveHwnd := activeHwnd
+
+        ; Focus moved inside a group that already had focus policy applied: ignore.
+        } else if (currGroupId == LastFocusPolicyGroupId) {
+            LastActiveHwnd := activeHwnd
+
+        ; If state sync happened in this group, defer focus policy to next stable cycle.
+        } else if (changedGroups.Has(currGroupId)) {
+            LastActiveHwnd := activeHwnd
+
+        } else {
+            SyncGroupFocusAndZOrder(currGroupId, activeHwnd)
+            newActive := 0
+            try newActive := WinGetID("A")
+            LastActiveHwnd := newActive ? newActive : activeHwnd
+            LastFocusPolicyGroupId := currGroupId
+        }
+    }
+
     SyncInProgress := false
 }
 
