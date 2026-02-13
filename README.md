@@ -1,4 +1,4 @@
-# Windows-Sync v1.1.0
+# Windows-Sync v1.3.0
 
 ## Description
 
@@ -6,13 +6,13 @@ A professional and robust **AutoHotkey v2** script to synchronize window states 
 
 Windows-Sync provides a responsive interface, **native tray integration**, support for multiple independent groups, rivals logic, and a complete visual identity.
 
-## What's New in v1.1.0
+## What's New in v1.3.0
 
-- ✅ **Group Focus + Z-Order Policy** - Group focus behavior is now synchronized when entering a Group from outside.
-- ✅ **No Continuous Focus Stealing** - Non-group windows can stay focused/on top without being constantly overridden.
-- ✅ **Stable Final Focus Target** - When group focus policy runs, the originally clicked window is forced as the final focus destination.
-- ✅ **Minimized Group Recovery Fix** - Restoring a minimized Group now preserves the correct final focus target.
-- ✅ **Safer Focus Reapplication Rules** - Switching focus inside the same Group no longer re-runs full focus sequencing.
+- ✅ **State-Preserving Window Return** - Reopening the GUI from tray or keyboard shortcut keeps current sync state active.
+- ✅ **Keyboard Return Shortcuts** - `ESC` and `Ctrl+Shift+Tab` can bring back the control window during sync without stopping it (if enabled).
+- ✅ **Sync-While-Visible UX** - `Sync All` switches to `Stop` and keeps the GUI visible; user decides when to stop.
+- ✅ **Safer Live Review Mode** - During sync, Group/Rival assignment stays blocked while review controls remain available.
+- ✅ **Default Behavior Improvements** - `ESC` disabled by default and `Minimize to Tray on Close` enabled by default.
 
 ## Key Features
 
@@ -32,7 +32,7 @@ Windows-Sync provides a responsive interface, **native tray integration**, suppo
 - ✅ **Responsive Layout** - Interface that adapts to resizing, with flexible columns.
 - ✅ **Executable Identification** - View the process name (`chrome.exe`, `Code.exe`) to easily identify windows.
 - ✅ **Direct Manipulation** - Click on any line in the list to open the instant assignment menu.
-- ✅ **Customizable Stop Shortcuts** - Choose to use **ESC** and/or **Ctrl + Shift + Tab** to end synchronization and return to the menu.
+- ✅ **Customizable Return Shortcuts** - Choose to use **ESC** and/or **Ctrl + Shift + Tab** to bring the control window back during synchronization.
 - ✅ **Professional Identity** - Custom icons embedded in the executable.
 
 ## How to Use
@@ -46,9 +46,10 @@ Windows-Sync provides a responsive interface, **native tray integration**, suppo
 1. **Assignment:** Click any row of the desired window and choose the corresponding Group or Rival.
 2. **Options:** 
    - Check **"Minimize to Tray on Close"** to keep the app running in the background.
-   - Configure stop shortcuts (**ESC**, **Ctrl+Shift+Tab**).
-3. **Synchronize:** Click "Sync All" (or use "Toggle Sync" from the tray). The configuration window will be hidden and monitoring will begin.
-4. **Stop:** Press the chosen shortcut or use the Tray Menu to stop monitoring.
+   - Configure return shortcuts (**ESC**, **Ctrl+Shift+Tab**).
+3. **Synchronize:** Click "Sync All" (or use "Toggle Sync" from the tray). Monitoring begins and the button changes to **Stop**.
+4. **Review While Active:** You can keep the GUI open (or reopen via tray/shortcut) without cancelling synchronization.
+5. **Stop:** Click **Stop** in the GUI or use the Tray Menu.
 
 ### Focus Behavior (Groups)
 1. Focus policy is applied when focus changes from a non-group window to a Group window.

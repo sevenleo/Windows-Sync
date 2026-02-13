@@ -7,7 +7,7 @@ Persistent
 ; ==============================================================================
 ;@Ahk2Exe-SetName Windows-Sync
 ;@Ahk2Exe-SetDescription Windows-Sync
-;@Ahk2Exe-SetVersion 1.0.1
+;@Ahk2Exe-SetVersion 1.3.0
 ;@Ahk2Exe-AddResource icon.ico, 160  ; Sets the main icon in the executable
 ;@Ahk2Exe-SetMainIcon icon.ico
 
@@ -40,7 +40,7 @@ global PersistentAssignments := Map()
 global LastActiveHwnd := 0
 global LastFocusPolicyGroupId := 0
 
-global UseEsc := true
+global UseEsc := false
 global UseTab := true
 
 ; ==============================================================================
@@ -64,7 +64,7 @@ SetupTrayMenu()
 ; ==============================================================================
 ; RESPONSIVE INTERFACE (v2.8.2)
 ; ==============================================================================
-global MainGui := Gui("+AlwaysOnTop +Resize +MinSize600x650", ProjectName)
+global MainGui := Gui("+Resize +MinSize600x720", ProjectName)
 MainGui.OnEvent("Close", Gui_Close)
 MainGui.OnEvent("Size", Gui_Size) 
 
@@ -102,13 +102,16 @@ LV.ModifyCol(4, 300)
 LV.OnEvent("Click", LV_Click)
 
 ; Shortcuts Section
-global GroupShortcuts := MainGui.Add("GroupBox", "xm y+30 w580 h70", "Options")
+global GroupShortcuts := MainGui.Add("GroupBox", "xm y+30 w580 h70", "Shortcuts")
 global ChkEsc := MainGui.Add("Checkbox", "xp+20 yp+30 w100 h20", "Enable ESC")
 ChkEsc.Value := UseEsc
 global ChkTab := MainGui.Add("Checkbox", "x+20 yp w160 h20", "Enable Ctrl+Shift+Tab")
 ChkTab.Value := UseTab
-global ChkTray := MainGui.Add("Checkbox", "x+20 yp w180 h20", "Minimize to Tray on Close")
-ChkTray.Value := false ; Default to Close = Exit
+
+; Options Section
+global GroupOptions := MainGui.Add("GroupBox", "xm y+10 w580 h70", "Options")
+global ChkTray := MainGui.Add("Checkbox", "xp+20 yp+30 w220 h20", "Minimize to Tray on Close")
+ChkTray.Value := true ; Default to Close = Minimize to Tray
 
 ; Actions Footer
 global BtnRefresh := MainGui.Add("Button", "xm+180 y+40 w120 h35", "Refresh List")
@@ -134,9 +137,23 @@ Loop 3
     AssignMenu.Add("Rival " A_Index, SetAssignmentFromMenu)
 
 UpdateList()
-MainGui.Show("w620 h650")
+MainGui.Show("w620 h720")
 
 ShowGui(*) {
+    global SyncActive, BtnStart, UseEsc, UseTab, ChkEsc, ChkTab
+    ChkEsc.Value := UseEsc
+    ChkTab.Value := UseTab
+    if (SyncActive) {
+        BtnStart.Text := "Stop"
+        SetSyncUiLocked(true)
+        try A_TrayMenu.Rename("Toggle Sync", "Stop Sync")
+        A_IconTip := ProjectName . " - Active"
+    } else {
+        BtnStart.Text := "Sync All"
+        SetSyncUiLocked(false)
+        try A_TrayMenu.Rename("Stop Sync", "Toggle Sync")
+        A_IconTip := ProjectName . " - Stopped"
+    }
     MainGui.Show()
     UpdateList()
 }
@@ -159,20 +176,35 @@ Gui_Size(thisGui, WindowState, Width, Height) {
 
     m := 20
     w := Width - (m * 2)
-    
+
+    ; Vertical stack from bottom to top to keep spacing stable:
+    ; Actions -> Options -> Shortcuts -> Active Windows
+    yActions := Height - 90
+    yOptions := yActions - 80
+    yShortcuts := yOptions - 80
+     
     Header1.Move(m, , w)
     Header2.Move(m, , w)
-    GroupList.Move(m, , w, Height - 280)
-    LV.Move(m + 10, , w - 20, Height - 325)
+
+    GroupList.GetPos(, &groupTop)
+    groupHeight := yShortcuts - 10 - groupTop
+    if (groupHeight < 170)
+        groupHeight := 170
+    GroupList.Move(m, , w, groupHeight)
+
+    lvHeight := groupHeight - 45
+    if (lvHeight < 120)
+        lvHeight := 120
+    LV.Move(m + 10, , w - 20, lvHeight)
     LV.ModifyCol(4, w - 20 - 130 - 120 - 30) 
 
-    yPos := Height - 180
-    GroupShortcuts.Move(m, yPos, w, 70)
-    ChkEsc.Move(m + 20, yPos + 30)
-    ChkTab.Move(m + 130, yPos + 30)
-    ChkTray.Move(m + 300, yPos + 30)
-    
-    yActions := Height - 90
+    GroupShortcuts.Move(m, yShortcuts, w, 70)
+    ChkEsc.Move(m + 20, yShortcuts + 30)
+    ChkTab.Move(m + 130, yShortcuts + 30)
+
+    GroupOptions.Move(m, yOptions, w, 70)
+    ChkTray.Move(m + 20, yOptions + 30)
+
     BtnRefresh.Move(m + 180, yActions)
     BtnStart.Move(m + 310, yActions)
     
@@ -215,9 +247,20 @@ UpdateList() {
 }
 
 LV_Click(LV, RowNumber) {
-    if (RowNumber == 0)
+    global SyncActive
+    if (SyncActive || RowNumber == 0)
         return
     AssignMenu.Show()
+}
+
+SetSyncUiLocked(isLocked) {
+    ; Keep Active Windows list enabled so user can scroll and review assignments during sync.
+    ; Group/Rival assignment is blocked by LV_Click when SyncActive is true.
+    LV.Opt("-Disabled")
+    BtnRefresh.Opt("-Disabled")
+    ChkEsc.Enabled := true
+    ChkTab.Enabled := true
+    ChkTray.Enabled := true
 }
 
 SetAssignmentFromMenu(ItemName, ItemPos, MyMenu) {
@@ -309,10 +352,10 @@ ToggleSync(*) {
     SyncActive := true
     LastActiveHwnd := 0
     LastFocusPolicyGroupId := 0
+    SetSyncUiLocked(true)
     BtnStart.Text := "Stop"
     A_IconTip := ProjectName . " - Active"
     try A_TrayMenu.Rename("Toggle Sync", "Stop Sync")
-    MainGui.Hide()
     if (!UseEsc && !UseTab)
         MsgBox("Warning: No stop shortcuts active. Use Tray Icon to stop.", "Warning", "Iconi")
     SetTimer(MonitorAll, 100)
@@ -323,6 +366,7 @@ StopSync() {
     SyncActive := false
     LastActiveHwnd := 0
     LastFocusPolicyGroupId := 0
+    SetSyncUiLocked(false)
     SetTimer(MonitorAll, 0)
     BtnStart.Text := "Sync All"
     A_IconTip := ProjectName . " - Stopped"
@@ -569,10 +613,10 @@ MonitorAll() {
 #HotIf SyncActive
 ~Esc:: {
     if (UseEsc)
-        StopSync()
+        ShowGui()
 }
 ^+Tab:: {
     if (UseTab)
-        StopSync()
+        ShowGui()
 }
 #HotIf

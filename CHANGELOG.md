@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## v1.3.0
+
+### Improvements
+- **State-Preserving Return (Tray/Shortcut):** Reopening the GUI while sync is active now preserves the running state instead of resetting it.
+- **Keyboard Return Shortcuts:** `ESC` and `Ctrl+Shift+Tab` (when enabled) now reopen the control window during sync rather than stopping synchronization.
+- **Visible Sync Control:** Starting sync keeps the GUI visible and switches `Sync All` to `Stop`.
+- **Selective Lock During Sync:** Group/Rival assignment remains blocked while review controls stay usable.
+- **Default UX Update:** `ESC` starts disabled by default; `Minimize to Tray on Close` starts enabled.
+- **Layout Refinement:** GUI vertical layout updated to avoid overlap between `Active Windows`, `Shortcuts`, and `Options`.
+
 ## v1.1.0
 
 ### Fixes
