@@ -43,9 +43,36 @@ global LastFocusPolicyGroupId := 0
 global UseEsc := false
 global UseTab := true
 
+global BtnGap := 10
+global BtnRefreshW := 120
+global BtnStartW := 150
+global BtnExitW := 90
+
 ; ==============================================================================
 ; TRAY MENU CONFIGURATION
 ; ==============================================================================
+ExitAllAndCloseApp(*) {
+    global SyncActive, SyncInProgress, SyncGroups, SyncRivals, PersistentAssignments
+    global LastActiveHwnd, LastFocusPolicyGroupId, BtnStart
+
+    SyncActive := false
+    SyncInProgress := false
+    SetTimer(MonitorAll, 0)
+
+    SyncGroups.Clear()
+    SyncRivals.Clear()
+    PersistentAssignments.Clear()
+    LastActiveHwnd := 0
+    LastFocusPolicyGroupId := 0
+
+    try BtnStart.Text := "Sync All"
+    try SetSyncUiLocked(false)
+    try A_TrayMenu.Rename("Stop Sync", "Toggle Sync")
+    A_IconTip := ProjectName . " - Stopped"
+
+    ExitApp()
+}
+
 SetupTrayMenu() {
     Tray := A_TrayMenu
     Tray.Delete() ; Clear default menu
@@ -54,7 +81,7 @@ SetupTrayMenu() {
     Tray.Add("Toggle Sync", ToggleSync)
     Tray.Add("Reload", (*) => Reload())
     Tray.Add() ; Separator
-    Tray.Add("Exit", (*) => ExitApp())
+    Tray.Add("Exit", ExitAllAndCloseApp)
 
     Tray.Default := "Configure"
     Tray.ClickCount := 1 ; Single click to open config
@@ -114,11 +141,16 @@ global ChkTray := MainGui.Add("Checkbox", "xp+20 yp+30 w220 h20", "Minimize to T
 ChkTray.Value := true ; Default to Close = Minimize to Tray
 
 ; Actions Footer
-global BtnRefresh := MainGui.Add("Button", "xm+180 y+40 w120 h35", "Refresh List")
+btnTotalW := BtnRefreshW + BtnStartW + BtnExitW + (BtnGap * 2)
+btnStartX := 20 + Floor((580 - btnTotalW) / 2)
+global BtnRefresh := MainGui.Add("Button", "x" btnStartX " y+40 w" BtnRefreshW " h35", "Refresh List")
 BtnRefresh.OnEvent("Click", (*) => UpdateList())
 
-global BtnStart := MainGui.Add("Button", "x+10 yp w150 h35 Default", "Sync All")
+global BtnStart := MainGui.Add("Button", "x" (btnStartX + BtnRefreshW + BtnGap) " yp w" BtnStartW " h35 Default", "Sync All")
 BtnStart.OnEvent("Click", ToggleSync)
+
+global BtnExit := MainGui.Add("Button", "x" (btnStartX + BtnRefreshW + BtnGap + BtnStartW + BtnGap) " yp w" BtnExitW " h35", "Exit")
+BtnExit.OnEvent("Click", ExitAllAndCloseApp)
 
 global StatusBar := MainGui.Add("StatusBar")
 
@@ -162,7 +194,7 @@ Gui_Close(*) {
     if (ChkTray.Value) {
         MainGui.Hide()
     } else {
-        ExitApp()
+        ExitAllAndCloseApp()
     }
 }
 
@@ -205,8 +237,14 @@ Gui_Size(thisGui, WindowState, Width, Height) {
     GroupOptions.Move(m, yOptions, w, 70)
     ChkTray.Move(m + 20, yOptions + 30)
 
-    BtnRefresh.Move(m + 180, yActions)
-    BtnStart.Move(m + 310, yActions)
+    totalButtonsW := BtnRefreshW + BtnStartW + BtnExitW + (BtnGap * 2)
+    buttonsStartX := m + Floor((w - totalButtonsW) / 2)
+    if (buttonsStartX < m)
+        buttonsStartX := m
+
+    BtnRefresh.Move(buttonsStartX, yActions, BtnRefreshW)
+    BtnStart.Move(buttonsStartX + BtnRefreshW + BtnGap, yActions, BtnStartW)
+    BtnExit.Move(buttonsStartX + BtnRefreshW + BtnGap + BtnStartW + BtnGap, yActions, BtnExitW)
     
     WinRedraw(thisGui)
 }
